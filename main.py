@@ -1,40 +1,59 @@
-import re
-import nltk
-from nltk.corpus import stopwords
-from nltk.sentiment import SentimentIntensityAnalyzer
+import requests
+import selectorlib
+import time
+import sqlite3
 
-with open("miracle_in_the_andes.txt","r",encoding="utf-8") as file:
-    book = file.read()
+URL = "http://programmer100.pythonanywhere.com/tours/"
+HEADERS = {
+    "User-Agent": 'Mozilla/5.0 '
+                  '(Macintosh;'
+                  ' Intel Mac OS X 10_10_1)'
+                  ' AppleWebKit/537.36 '
+                  '(KHTML, like Gecko) '
+                  'Chrome/39.0.2171.95 '
+                  'Safari/537.36'}
 
-#Extraction of words
-words = re.compile("[a-zA-Z]+")
-word_match = re.findall(pattern=words,string=book.lower())
-print(len(word_match))
+connection = sqlite3.connect(("data.db"))
 
-#find occurance of words
-d={}
-for i in word_match:
-    if i in d.keys():
-        d[i] = d[i]+1
-    else:
-        d[i]=1
-d_list=[(value,key) for (key,value) in d.items()]
-f=sorted(d_list,reverse=True)
+def scrape(url):
+    response = requests.get(url, headers=HEADERS)
+    source = response.text
+    return source
 
-#Common english words, like articles and blah blah
-english_stopwords = stopwords.words("english")
+def extracted(source):
+    extractor =\
+        selectorlib.Extractor.from_yaml_file\
+            ("source.yaml")
+    value= extractor.extract(source)["tours"]
+    return value
 
-Actual_words=[]
-for i,j in f:
-    if j not in english_stopwords:
-        Actual_words.append((j,i))
+def write_text(extract):
+    row = extract.split(",")
+    row = [item.strip() for item in row]
+    cursor=connection.cursor()
+    cursor.execute("INSERT INTO events VALUES(?,?,?)",row)
+    connection.commit()
 
-#sentiment analysis of chapters
-analyzer = SentimentIntensityAnalyzer()
+def read_text(extract):
+    row =extract.split(",")
+    row=[item.strip() for item in row]
+    band,city,date=row
+    cursor=connection.cursor()
+    cursor.execute("SELECT * FROM events WHERE band=? AND city=? AND date=?",(band,city,date))
+    rows=cursor.fetchall()
+    return rows
 
-regular = re.compile("Chapter [0-9]+")
-chapter = re.split(regular,book)
-chapters = chapter[1:]
-for i in chapters:
-    scores = analyzer.polarity_scores(i)
-    print(scores)
+def sent_email():
+    print("Email was sent")
+
+if __name__ == "__main__":
+    while True:
+        scraped=scrape(URL)
+        extract=extracted(scraped)
+        print(extract)
+        if extract != "No upcoming tours":
+            row = read_text(extract)
+            if not row:
+                write_text(extract)
+                sent_email()
+        time.sleep(2)
